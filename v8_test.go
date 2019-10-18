@@ -1,4 +1,4 @@
-package v8
+package js8
 
 import (
 	"encoding/json"
@@ -891,7 +891,7 @@ func TestCreateSimple(t *testing.T) {
 		{3.7, "3.7"},
 		{true, "true"},
 		{"asdf", "asdf"},
-		{callback, "function v8.TestCreateSimple.func1() { [native code] }"},
+		{callback, "function js8.TestCreateSimple.func1() { [native code] }"},
 		{map[string]int{"foo": 1, "bar": 2}, "[object Object]"},
 		{struct {
 			Foo int

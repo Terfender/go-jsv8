@@ -1,4 +1,4 @@
-package v8
+package js8
 
 import (
 	"testing"

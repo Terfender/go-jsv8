@@ -20,4 +20,4 @@
 //   * https://github.com/fluxio/go-v8
 //   * https://github.com/kingland/go-v8
 //   * https://github.com/mattn/go-v8
-package v8
+package js8

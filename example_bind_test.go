@@ -1,16 +1,16 @@
-package v8_test
+package js8_test
 
 import (
 	"fmt"
 	"strconv"
 
-	"github.com/augustoroman/v8"
+	"github.com/joesonw/js8"
 )
 
 // AddAllNumbers is the callback function that we'll make accessible the JS VM.
 // It will accept 2 or more numbers and return the sum. If fewer than two args
 // are passed or any of the args are not parsable as numbers, it will fail.
-func AddAllNumbers(in v8.CallbackArgs) (*v8.Value, error) {
+func AddAllNumbers(in js8.CallbackArgs) (*js8.Value, error) {
 	if len(in.Args) < 2 {
 		return nil, fmt.Errorf("add requires at least 2 numbers, but got %d args", len(in.Args))
 	}
@@ -26,9 +26,9 @@ func AddAllNumbers(in v8.CallbackArgs) (*v8.Value, error) {
 }
 
 func ExampleContext_Bind() {
-	ctx := v8.NewIsolate().NewContext()
+	ctx := js8.NewIsolate().NewContext()
 
-	// First, we'll bind our callback function into a *v8.Value that we can
+	// First, we'll bind our callback function into a *js8.Value that we can
 	// use as we please. The string "my_add_function" here is the used by V8 as
 	// the name of the function. That is, we've defined:
 	//   val.toString() = (function my_add_function() { [native code] });
