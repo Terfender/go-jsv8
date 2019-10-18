@@ -1,6 +1,6 @@
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
-*.a
+.idea/
 *.so
 
 # Folders
@@ -22,7 +22,5 @@ _testmain.go
 *.exe
 *.test
 *.prof
-include
-libv8
 v8/build/.gclient
 v8/build/.gclient_entries
