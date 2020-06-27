@@ -8,6 +8,9 @@
 #include <string>
 #include <sstream>
 #include <stdio.h>
+#include <iostream>
+
+auto default_platform = v8::platform::NewDefaultPlatform();
 
 #define ISOLATE_SCOPE(iso) \
   v8::Isolate* isolate = (iso);                                                               \
@@ -39,8 +42,8 @@ String DupString(const v8::String::Utf8Value& src) {
   memcpy(data, *src, src.length());
   return (String){data, src.length()};
 }
-String DupString(const v8::Local<v8::Value>& val) {
-  return DupString(v8::String::Utf8Value(val));
+String DupString(v8::Isolate* isolate,const v8::Local<v8::Value>& val) {
+  return DupString(v8::String::Utf8Value(isolate, val));
 }
 String DupString(const char* msg) {
   const char* data = strdup(msg);
@@ -55,6 +58,7 @@ String DupString(const std::string& src) {
 KindMask v8_Value_KindsFromLocal(v8::Local<v8::Value> value) {
   KindMask kinds = 0;
 
+  // tmp =---
   if (value->IsUndefined())         kinds |= (1ULL << Kind::kUndefined        );
   if (value->IsNull())              kinds |= (1ULL << Kind::kNull             );
   if (value->IsName())              kinds |= (1ULL << Kind::kName             );
@@ -107,8 +111,8 @@ KindMask v8_Value_KindsFromLocal(v8::Local<v8::Value> value) {
   return kinds;
 }
 
-std::string str(v8::Local<v8::Value> value) {
-  v8::String::Utf8Value s(value);
+std::string str(v8::Isolate* isolate, v8::Local<v8::Value> value) {
+  v8::String::Utf8Value s(isolate, value);
   if (s.length() == 0) {
     return "";
   }
@@ -119,13 +123,13 @@ std::string report_exception(v8::Isolate* isolate, v8::Local<v8::Context> ctx, v
   std::stringstream ss;
   ss << "Uncaught exception: ";
 
-  std::string exceptionStr = str(try_catch.Exception());
+  std::string exceptionStr = str(isolate, try_catch.Exception());
   ss << exceptionStr; // TODO(aroman) JSON-ify objects?
 
   if (!try_catch.Message().IsEmpty()) {
     if (!try_catch.Message()->GetScriptResourceName()->IsUndefined()) {
       ss << std::endl
-         << "at " << str(try_catch.Message()->GetScriptResourceName());
+         << "at " << str(isolate, try_catch.Message()->GetScriptResourceName());
 
       v8::Maybe<int> line_no = try_catch.Message()->GetLineNumber(ctx);
       v8::Maybe<int> start = try_catch.Message()->GetStartColumn(ctx);
@@ -140,7 +144,7 @@ std::string report_exception(v8::Isolate* isolate, v8::Local<v8::Context> ctx, v
       }
       if (!sourceLine.IsEmpty()) {
         ss << std::endl
-           << "  " << str(sourceLine.ToLocalChecked());
+           << "  " << str(isolate, sourceLine.ToLocalChecked());
       }
       if (start.IsJust() && end.IsJust()) {
         ss << std::endl
@@ -155,8 +159,8 @@ std::string report_exception(v8::Isolate* isolate, v8::Local<v8::Context> ctx, v
     }
   }
 
-  if (!try_catch.StackTrace().IsEmpty()) {
-    ss << std::endl << "Stack trace: " << str(try_catch.StackTrace());
+  if (!try_catch.StackTrace(ctx).IsEmpty()) {
+    ss << std::endl << "Stack trace: " << str(isolate, try_catch.StackTrace(ctx).ToLocalChecked());
   }
 
   return ss.str();
@@ -168,17 +172,61 @@ extern "C" {
 Version version = {V8_MAJOR_VERSION, V8_MINOR_VERSION, V8_BUILD_NUMBER, V8_PATCH_LEVEL};
 
 void v8_init() {
-  v8::Platform *platform = v8::platform::CreateDefaultPlatform(
-      0, // thread_pool_size
-      v8::platform::IdleTaskSupport::kDisabled,
-      v8::platform::InProcessStackDumping::kDisabled);
-  v8::V8::InitializePlatform(platform);
+  v8::V8::InitializePlatform(default_platform.get());
   v8::V8::Initialize();
   return;
 }
 
+
+bool RunExtraCode(v8::Isolate* isolate, v8::Local<v8::Context> context,
+                  const char* utf8_source, const char* name) {
+
+  v8::Context::Scope context_scope(context);
+  v8::TryCatch try_catch(isolate);
+  v8::Local<v8::String> source_string;
+  if (!v8::String::NewFromUtf8(isolate, utf8_source, v8::NewStringType::kNormal)
+           .ToLocal(&source_string)) {
+    return false;
+  }
+  v8::Local<v8::String> resource_name =
+        v8::String::NewFromUtf8(isolate, name, v8::NewStringType::kNormal)
+          .ToLocalChecked();
+  v8::ScriptOrigin origin(resource_name);
+  v8::ScriptCompiler::Source source(source_string, origin);
+  v8::Local<v8::Script> script;
+  if (!v8::ScriptCompiler::Compile(context, &source).ToLocal(&script)) return false;
+  if (script->Run(context).IsEmpty()) return false;
+
+  return true;
+}
+
+v8::StartupData CreateSnapshotDataBlob(const char* embedded_source) {
+  // Create a new isolate and a new context from scratch, optionally run
+  // a script to embed, and serialize to create a snapshot blob.
+  v8::StartupData result = {nullptr, 0};
+  {
+    v8::SnapshotCreator snapshot_creator;
+    v8::Isolate* isolate = snapshot_creator.GetIsolate();
+    {
+      v8::HandleScope scope(isolate);
+      v8::Local<v8::Context> context = v8::Context::New(isolate);
+      if (embedded_source != nullptr &&
+          !RunExtraCode(isolate, context, embedded_source, "<embedded>")) {
+        return result;
+      }
+      snapshot_creator.SetDefaultContext(context);
+    }
+    result = snapshot_creator.CreateBlob(
+        v8::SnapshotCreator::FunctionCodeHandling::kClear);
+  }
+
+
+  return result;
+}
+
+
 StartupData v8_CreateSnapshotDataBlob(const char* js) {
-  v8::StartupData data = v8::V8::CreateSnapshotDataBlob(js);
+  v8::StartupData data = CreateSnapshotDataBlob(js);
   return StartupData{data.data, data.raw_size};
 }
 
@@ -228,27 +276,35 @@ ValueTuple v8_Context_Run(ContextPtr ctxptr, const char* code, const char* filen
   v8::TryCatch try_catch(isolate);
   try_catch.SetVerbose(false);
 
-  filename = filename ? filename : "(no file)";
+  const char* origin = filename ? filename : "(no file)";
+
+  v8::Local<v8::String> ogn = v8::String::NewFromUtf8(isolate, origin).ToLocalChecked();
+  v8::ScriptOrigin script_origin(ogn);
 
   ValueTuple res = { nullptr, 0, nullptr };
+  v8::MaybeLocal<v8::Script> maybe_script = v8::Script::Compile(
+      ctx->ptr.Get(isolate),
+      v8::String::NewFromUtf8(isolate, code).ToLocalChecked(),
+      &script_origin
+      );
 
-  v8::Local<v8::Script> script = v8::Script::Compile(
-      v8::String::NewFromUtf8(isolate, code),
-      v8::String::NewFromUtf8(isolate, filename));
-
-  if (script.IsEmpty()) {
+  if (maybe_script.IsEmpty()) {
     res.error_msg = DupString(report_exception(isolate, ctx->ptr.Get(isolate), try_catch));
     return res;
   }
 
-  v8::Local<v8::Value> result = script->Run();
-
+  v8::Local<v8::Script> script = maybe_script.ToLocalChecked();
+  v8::MaybeLocal<v8::Value> result = script->Run(ctx->ptr.Get(isolate));
   if (result.IsEmpty()) {
     res.error_msg = DupString(report_exception(isolate, ctx->ptr.Get(isolate), try_catch));
+
   } else {
-    res.Value = static_cast<PersistentValuePtr>(new Value(isolate, result));
-    res.Kinds = v8_Value_KindsFromLocal(result);
+      auto x = result.ToLocalChecked();
+      res.Value = static_cast<PersistentValuePtr>(new Value(isolate, x));
+      res.Kinds = v8_Value_KindsFromLocal(x);
+      
   }
+
 
 	return res;
 }
@@ -262,26 +318,28 @@ PersistentValuePtr v8_Context_RegisterCallback(
 ) {
   VALUE_SCOPE(ctxptr);
 
+
+  // TODO 下面3处都是直接用了ToLocalChecked
   v8::Local<v8::FunctionTemplate> cb =
     v8::FunctionTemplate::New(isolate, go_callback,
-      v8::String::NewFromUtf8(isolate, id));
-  cb->SetClassName(v8::String::NewFromUtf8(isolate, name));
-  return new Value(isolate, cb->GetFunction());
+      v8::String::NewFromUtf8(isolate, id).ToLocalChecked());
+  cb->SetClassName(v8::String::NewFromUtf8(isolate, name).ToLocalChecked());
+  return new Value(isolate, cb->GetFunction(ctx).ToLocalChecked());
 }
 
 void go_callback(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* iso = args.GetIsolate();
   v8::HandleScope scope(iso);
 
-  std::string id = str(args.Data());
+  std::string id = str(iso, args.Data());
 
   std::string src_file, src_func;
   int line_number = 0, column = 0;
   v8::Local<v8::StackTrace> trace(v8::StackTrace::CurrentStackTrace(iso, 1));
   if (trace->GetFrameCount() == 1) {
-    v8::Local<v8::StackFrame> frame(trace->GetFrame(0));
-    src_file = str(frame->GetScriptName());
-    src_func = str(frame->GetFunctionName());
+    v8::Local<v8::StackFrame> frame(trace->GetFrame(iso, 0));
+    src_file = str(iso, frame->GetScriptName());
+    src_func = str(iso, frame->GetFunctionName());
     line_number = frame->GetLineNumber();
     column = frame->GetColumn();
   }
@@ -310,7 +368,7 @@ void go_callback(const v8::FunctionCallbackInfo<v8::Value>& args) {
   } else if (result.Value == NULL) {
     args.GetReturnValue().Set(v8::Undefined(iso));
   } else {
-    args.GetReturnValue().Set(*static_cast<Value*>(result.Value));
+    args.GetReturnValue().Set(v8::Global<v8::Value>(iso, *static_cast<Value*>(result.Value)));
   }
 }
 
@@ -340,7 +398,13 @@ PersistentValuePtr v8_Context_Create(ContextPtr ctxptr, ImmediateValue val) {
         break;
     }
     case tBOOL:        return new Value(isolate, v8::Boolean::New(isolate, val.Bool == 1)); break;
-    case tDATE:        return new Value(isolate, v8::Date::New(isolate, val.Float64)); break;
+    case tDATE: {
+      v8::MaybeLocal<v8::Value> maybe_date = v8::Date::New(ctx, val.Float64);
+      if (maybe_date.IsEmpty()) {
+        return nullptr;
+      }
+      return new Value(isolate, maybe_date.ToLocalChecked()); break;
+      };
     case tFLOAT64:     return new Value(isolate, v8::Number::New(isolate, val.Float64)); break;
     // For now, this is converted to a double on entry.
     // TODO(aroman) Consider using BigInt, but only if the V8 version supports
@@ -370,7 +434,8 @@ ValueTuple v8_Value_Get(ContextPtr ctxptr, PersistentValuePtr valueptr, const ch
   // we've just created the local object above.
   v8::Local<v8::Object> object = maybeObject->ToObject(ctx).ToLocalChecked();
 
-  v8::Local<v8::Value> localValue = object->Get(ctx, v8::String::NewFromUtf8(isolate, field)).ToLocalChecked();
+  // TODO UTF转码没有check，直接用了ToLocalChecked
+  v8::Local<v8::Value> localValue = object->Get(ctx, v8::String::NewFromUtf8(isolate, field).ToLocalChecked()).ToLocalChecked();
 
   return (ValueTuple){
     new Value(isolate, localValue),
@@ -422,8 +487,10 @@ Error v8_Value_Set(ContextPtr ctxptr, PersistentValuePtr valueptr,
 
   Value* new_value = static_cast<Value*>(new_valueptr);
   v8::Local<v8::Value> new_value_local = new_value->Get(isolate);
+
+  // TODO UTF转码没有check，直接用了ToLocalChecked
   v8::Maybe<bool> res =
-    object->Set(ctx, v8::String::NewFromUtf8(isolate, field), new_value_local);
+    object->Set(ctx, v8::String::NewFromUtf8(isolate, field).ToLocalChecked(), new_value_local);
 
   if (res.IsNothing()) {
     return DupString("Something went wrong -- set returned nothing.");
@@ -565,7 +632,9 @@ String v8_Value_String(ContextPtr ctxptr, PersistentValuePtr valueptr) {
   VALUE_SCOPE(ctxptr);
 
   v8::Local<v8::Value> value = static_cast<Value*>(valueptr)->Get(isolate);
-  return DupString(value->ToString());
+  
+  // TODO 没有check，直接用了ToLocalChecked
+  return DupString(isolate, value->ToString(ctx).ToLocalChecked());
 }
 
 double v8_Value_Float64(ContextPtr ctxptr, PersistentValuePtr valueptr) {
@@ -589,11 +658,9 @@ int64_t v8_Value_Int64(ContextPtr ctxptr, PersistentValuePtr valueptr) {
 int v8_Value_Bool(ContextPtr ctxptr, PersistentValuePtr valueptr) {
   VALUE_SCOPE(ctxptr);
   v8::Local<v8::Value> value = static_cast<Value*>(valueptr)->Get(isolate);
-  v8::Maybe<bool> val = value->BooleanValue(ctx);
-  if (val.IsNothing()) {
-    return 0;
-  }
-  return val.ToChecked() ? 1 : 0;
+  bool val = value->BooleanValue(isolate);
+
+  return val ? 1 : 0;
 }
 
 ByteArray v8_Value_Bytes(ContextPtr ctxptr, PersistentValuePtr valueptr) {

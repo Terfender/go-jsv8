@@ -9,6 +9,7 @@
 #include <cctype>
 
 #include <memory>
+#include <unordered_map>
 
 #include "v8.h"  // NOLINT(build/include)
 
@@ -24,6 +25,7 @@ namespace Runtime {
 namespace API {
 class RemoteObject;
 class StackTrace;
+class StackTraceId;
 }
 }
 namespace Schema {
@@ -62,7 +64,7 @@ class V8_EXPORT StringView {
 
 class V8_EXPORT StringBuffer {
  public:
-  virtual ~StringBuffer() {}
+  virtual ~StringBuffer() = default;
   virtual const StringView& string() = 0;
   // This method copies contents.
   static std::unique_ptr<StringBuffer> create(const StringView&);
@@ -87,7 +89,6 @@ class V8_EXPORT V8ContextInfo {
 
   static int executionContextId(v8::Local<v8::Context> context);
 
- private:
   // Disallow copying and allocating this one.
   enum NotNullTagEnum { NotNullLiteral };
   void* operator new(size_t) = delete;
@@ -99,6 +100,7 @@ class V8_EXPORT V8ContextInfo {
 
 class V8_EXPORT V8StackTrace {
  public:
+  virtual StringView firstNonEmptySourceURL() const = 0;
   virtual bool isEmpty() const = 0;
   virtual StringView topSourceURL() const = 0;
   virtual int topLineNumber() const = 0;
@@ -106,9 +108,11 @@ class V8_EXPORT V8StackTrace {
   virtual StringView topScriptId() const = 0;
   virtual StringView topFunctionName() const = 0;
 
-  virtual ~V8StackTrace() {}
+  virtual ~V8StackTrace() = default;
   virtual std::unique_ptr<protocol::Runtime::API::StackTrace>
   buildInspectorObject() const = 0;
+  virtual std::unique_ptr<protocol::Runtime::API::StackTrace>
+  buildInspectorObject(int maxAsyncDepth) const = 0;
   virtual std::unique_ptr<StringBuffer> toString() const = 0;
 
   // Safe to pass between threads, drops async chain.
@@ -117,20 +121,20 @@ class V8_EXPORT V8StackTrace {
 
 class V8_EXPORT V8InspectorSession {
  public:
-  virtual ~V8InspectorSession() {}
+  virtual ~V8InspectorSession() = default;
 
   // Cross-context inspectable values (DOM nodes in different worlds, etc.).
   class V8_EXPORT Inspectable {
    public:
     virtual v8::Local<v8::Value> get(v8::Local<v8::Context>) = 0;
-    virtual ~Inspectable() {}
+    virtual ~Inspectable() = default;
   };
   virtual void addInspectedObject(std::unique_ptr<Inspectable>) = 0;
 
   // Dispatching protocol messages.
   static bool canDispatchMethod(const StringView& method);
   virtual void dispatchProtocolMessage(const StringView& message) = 0;
-  virtual std::unique_ptr<StringBuffer> stateJSON() = 0;
+  virtual std::vector<uint8_t> state() = 0;
   virtual std::vector<std::unique_ptr<protocol::Schema::API::Domain>>
   supportedDomains() = 0;
 
@@ -149,8 +153,9 @@ class V8_EXPORT V8InspectorSession {
 
   // Remote objects.
   virtual std::unique_ptr<protocol::Runtime::API::RemoteObject> wrapObject(
-      v8::Local<v8::Context>, v8::Local<v8::Value>,
-      const StringView& groupName) = 0;
+      v8::Local<v8::Context>, v8::Local<v8::Value>, const StringView& groupName,
+      bool generatePreview) = 0;
+
   virtual bool unwrapObject(std::unique_ptr<StringBuffer>* error,
                             const StringView& objectId, v8::Local<v8::Value>*,
                             v8::Local<v8::Context>*,
@@ -160,7 +165,7 @@ class V8_EXPORT V8InspectorSession {
 
 class V8_EXPORT V8InspectorClient {
  public:
-  virtual ~V8InspectorClient() {}
+  virtual ~V8InspectorClient() = default;
 
   virtual void runMessageLoopOnPause(int contextGroupId) {}
   virtual void quitMessageLoopOnPause() {}
@@ -213,17 +218,45 @@ class V8_EXPORT V8InspectorClient {
   virtual bool canExecuteScripts(int contextGroupId) { return true; }
 
   virtual void maxAsyncCallStackDepthChanged(int depth) {}
+
+  virtual std::unique_ptr<StringBuffer> resourceNameToUrl(
+      const StringView& resourceName) {
+    return nullptr;
+  }
+};
+
+// These stack trace ids are intended to be passed between debuggers and be
+// resolved later. This allows to track cross-debugger calls and step between
+// them if a single client connects to multiple debuggers.
+struct V8_EXPORT V8StackTraceId {
+  uintptr_t id;
+  std::pair<int64_t, int64_t> debugger_id;
+  bool should_pause = false;
+
+  V8StackTraceId();
+  V8StackTraceId(const V8StackTraceId&) = default;
+  V8StackTraceId(uintptr_t id, const std::pair<int64_t, int64_t> debugger_id);
+  V8StackTraceId(uintptr_t id, const std::pair<int64_t, int64_t> debugger_id,
+                 bool should_pause);
+  explicit V8StackTraceId(const StringView&);
+  V8StackTraceId& operator=(const V8StackTraceId&) = default;
+  V8StackTraceId& operator=(V8StackTraceId&&) noexcept = default;
+  ~V8StackTraceId() = default;
+
+  bool IsInvalid() const;
+  std::unique_ptr<StringBuffer> ToString();
 };
 
 class V8_EXPORT V8Inspector {
  public:
   static std::unique_ptr<V8Inspector> create(v8::Isolate*, V8InspectorClient*);
-  virtual ~V8Inspector() {}
+  virtual ~V8Inspector() = default;
 
   // Contexts instrumentation.
   virtual void contextCreated(const V8ContextInfo&) = 0;
   virtual void contextDestroyed(v8::Local<v8::Context>) = 0;
   virtual void resetContextGroup(int contextGroupId) = 0;
+  virtual v8::MaybeLocal<v8::Context> contextById(int contextId) = 0;
 
   // Various instrumentation.
   virtual void idleStarted() = 0;
@@ -237,6 +270,11 @@ class V8_EXPORT V8Inspector {
   virtual void asyncTaskFinished(void* task) = 0;
   virtual void allAsyncTasksCanceled() = 0;
 
+  virtual V8StackTraceId storeCurrentStackTrace(
+      const StringView& description) = 0;
+  virtual void externalAsyncTaskStarted(const V8StackTraceId& parent) = 0;
+  virtual void externalAsyncTaskFinished(const V8StackTraceId& parent) = 0;
+
   // Exceptions instrumentation.
   virtual unsigned exceptionThrown(
       v8::Local<v8::Context>, const StringView& message,
@@ -249,7 +287,7 @@ class V8_EXPORT V8Inspector {
   // Connection.
   class V8_EXPORT Channel {
    public:
-    virtual ~Channel() {}
+    virtual ~Channel() = default;
     virtual void sendResponse(int callId,
                               std::unique_ptr<StringBuffer> message) = 0;
     virtual void sendNotification(std::unique_ptr<StringBuffer> message) = 0;
@@ -262,6 +300,24 @@ class V8_EXPORT V8Inspector {
   virtual std::unique_ptr<V8StackTrace> createStackTrace(
       v8::Local<v8::StackTrace>) = 0;
   virtual std::unique_ptr<V8StackTrace> captureStackTrace(bool fullStack) = 0;
+
+  // Performance counters.
+  class V8_EXPORT Counters : public std::enable_shared_from_this<Counters> {
+   public:
+    explicit Counters(v8::Isolate* isolate);
+    ~Counters();
+    const std::unordered_map<std::string, int>& getCountersMap() const {
+      return m_countersMap;
+    }
+
+   private:
+    static int* getCounterPtr(const char* name);
+
+    v8::Isolate* m_isolate;
+    std::unordered_map<std::string, int> m_countersMap;
+  };
+
+  virtual std::shared_ptr<Counters> enableCounters() = 0;
 };
 
 }  // namespace v8_inspector

@@ -15,8 +15,8 @@ import (
 // #include <stdlib.h>
 // #include <string.h>
 // #include "v8_c_bridge.h"
-// #cgo CXXFLAGS: -I${SRCDIR}/libv8-darwin -I${SRCDIR}/libv8-darwin/include -fno-rtti -fpic -std=c++11
-// #cgo LDFLAGS: -pthread -L${SRCDIR}/libv8-darwin/libv8 -lv8_base -lv8_init -lv8_initializers -lv8_libbase -lv8_libplatform -lv8_libsampler -lv8_nosnapshot
+// #cgo CXXFLAGS: -I${SRCDIR}/libv8-darwin -I${SRCDIR}/libv8-darwin/include -fno-rtti -fpic -std=c++11 -DV8_COMPRESS_POINTERS
+// #cgo LDFLAGS: -pthread -L${SRCDIR}/libv8-darwin/libv8 -lv8
 import "C"
 
 var float64Type = reflect.TypeOf(float64(0))
