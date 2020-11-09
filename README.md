@@ -1,17 +1,11 @@
-This is a modified clone of [github.com/augustoroman/v8](https://github.com/augustoroman/v8).
+This is a modified clone of [github.com/joesonw/js8](https://github.com/joesonw/js8).
 
-Where the original repository comes with two problems
+The oriinal repo use V8 `6.3.292.48.1` and this repo upgraded it to `8.4.255.0`.
 
-1. It does not work well with `go module`
-2. It includes manual setup script, which can be confusing when try to build this package with `bazel`
+> To reduce the size of this repo, V8 static library is not included in this repo. Run `seetup.sh` to download the static binary libraries.
 
+Because V8 API keeps changing, there are a lot of change in `v8_c_bridge.cc`
 
-So. I did the following
+To upgrade to a newer V8 version in the future, modify the var definition in `setup.sh`, run the script to download the newest version and do some work in `v8_c_bridge.cc` `v8_{arch}.go` and `v8_create_{arch}.go`. 
 
-1. `setup.sh` it grabs compiled `v8` from `rubygems` as mentioned [here](https://github.com/augustoroman/v8#using-a-pre-compiled-v8)
-2. include the compiled library and headers as part of the repo, so you can do `go get github.com/joesonw/js8`
-3. It works for both `amd64` and `darwin64` since I grabbed both files.
-
-
-
-Current V8 version si `6.3.292.48.1`. I tried `6.7`, It does not quite work without any further investigation.
+Since the gem package layout may be change, if `setup.sh` run into error, you should also change that script.

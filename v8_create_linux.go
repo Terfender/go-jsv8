@@ -16,7 +16,7 @@ import (
 // #include <string.h>
 // #include "v8_c_bridge.h"
 // #cgo CXXFLAGS: -I${SRCDIR} -I${SRCDIR}/libv8-linux/include -fno-rtti -fpic -std=c++11
-// #cgo LDFLAGS: -pthread -L${SRCDIR}/libv8-linux/libv8 -lv8_base -lv8_init -lv8_initializers -lv8_libbase -lv8_libplatform -lv8_libsampler -lv8_nosnapshot
+// #cgo LDFLAGS: -pthread -L${SRCDIR}/libv8-linux/libv8 -lv8_monolith
 import "C"
 
 var float64Type = reflect.TypeOf(float64(0))

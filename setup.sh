@@ -2,10 +2,10 @@
 
 rm -rf ./libv8-darwin/ ./libv8-linux/
 
-VERSION=6.3.292.48.1
+VERSION=8.4.255.0
 
-wget https://rubygems.org/downloads/libv8-${VERSION}-x86_64-linux.gem
-wget https://rubygems.org/downloads/libv8-${VERSION}-x86_64-darwin-16.gem
+wget https://gems.ruby-china.com/downloads/libv8-${VERSION}-x86_64-linux.gem
+wget https://gems.ruby-china.com/downloads/libv8-${VERSION}-x86_64-darwin-16.gem
 
 mkdir -p ./libv8-darwin/ ./libv8-linux/
 
@@ -23,7 +23,7 @@ rm -rf ext
 rm -rf lib
 
 mv vendor/v8/include ./include
-mv vendor/v8/out/x64.release ./libv8
+mv vendor/v8/out.gn/libv8/obj ./libv8
 rm -rf vendor
 cd ../
 
@@ -38,5 +38,5 @@ rm -rf ext
 rm -rf lib
 
 mv vendor/v8/include ./include
-mv vendor/v8/out/x64.release ./libv8
+mv vendor/v8/out.gn/libv8/obj ./libv8
 rm -rf vendor

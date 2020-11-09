@@ -10,8 +10,8 @@
 #include <string.h>
 #include <type_traits>
 
-#include "v8-version.h"  // NOLINT(build/include)
-#include "v8config.h"    // NOLINT(build/include)
+#include "v8-version.h"  // NOLINT(build/include_directory)
+#include "v8config.h"    // NOLINT(build/include_directory)
 
 namespace v8 {
 
@@ -106,6 +106,10 @@ const int kApiTaggedSize = kApiInt32Size;
 const int kApiTaggedSize = kApiSystemPointerSize;
 #endif
 
+constexpr bool PointerCompressionIsEnabled() {
+  return kApiTaggedSize != kApiSystemPointerSize;
+}
+
 #ifdef V8_31BIT_SMIS_ON_64BIT_ARCH
 using PlatformSmiTagging = SmiTagging<kApiInt32Size>;
 #else
@@ -141,7 +145,6 @@ class Internals {
       1 * kApiTaggedSize + 2 * kApiInt32Size;
 
   static const int kOddballKindOffset = 4 * kApiTaggedSize + kApiDoubleSize;
-  static const int kForeignAddressOffset = kApiTaggedSize;
   static const int kJSObjectHeaderSize = 3 * kApiTaggedSize;
   static const int kFixedArrayHeaderSize = 2 * kApiTaggedSize;
   static const int kEmbedderDataArrayHeaderSize = 2 * kApiTaggedSize;
@@ -160,10 +163,10 @@ class Internals {
       kNumIsolateDataSlots * kApiSystemPointerSize;
   static const int kExternalMemoryLimitOffset =
       kExternalMemoryOffset + kApiInt64Size;
-  static const int kExternalMemoryAtLastMarkCompactOffset =
+  static const int kExternalMemoryLowSinceMarkCompactOffset =
       kExternalMemoryLimitOffset + kApiInt64Size;
   static const int kIsolateFastCCallCallerFpOffset =
-      kExternalMemoryAtLastMarkCompactOffset + kApiInt64Size;
+      kExternalMemoryLowSinceMarkCompactOffset + kApiInt64Size;
   static const int kIsolateFastCCallCallerPcOffset =
       kIsolateFastCCallCallerFpOffset + kApiSystemPointerSize;
   static const int kIsolateStackGuardOffset =
@@ -308,9 +311,9 @@ class Internals {
   V8_INLINE static internal::Address ReadTaggedPointerField(
       internal::Address heap_object_ptr, int offset) {
 #ifdef V8_COMPRESS_POINTERS
-    int32_t value = ReadRawField<int32_t>(heap_object_ptr, offset);
+    uint32_t value = ReadRawField<uint32_t>(heap_object_ptr, offset);
     internal::Address root = GetRootFromOnHeapAddress(heap_object_ptr);
-    return root + static_cast<internal::Address>(static_cast<intptr_t>(value));
+    return root + static_cast<internal::Address>(static_cast<uintptr_t>(value));
 #else
     return ReadRawField<internal::Address>(heap_object_ptr, offset);
 #endif
@@ -319,8 +322,8 @@ class Internals {
   V8_INLINE static internal::Address ReadTaggedSignedField(
       internal::Address heap_object_ptr, int offset) {
 #ifdef V8_COMPRESS_POINTERS
-    int32_t value = ReadRawField<int32_t>(heap_object_ptr, offset);
-    return static_cast<internal::Address>(static_cast<intptr_t>(value));
+    uint32_t value = ReadRawField<uint32_t>(heap_object_ptr, offset);
+    return static_cast<internal::Address>(static_cast<uintptr_t>(value));
 #else
     return ReadRawField<internal::Address>(heap_object_ptr, offset);
 #endif
@@ -337,13 +340,9 @@ class Internals {
   }
 
   V8_INLINE static internal::Address DecompressTaggedAnyField(
-      internal::Address heap_object_ptr, int32_t value) {
-    internal::Address root_mask = static_cast<internal::Address>(
-        -static_cast<intptr_t>(value & kSmiTagMask));
-    internal::Address root_or_zero =
-        root_mask & GetRootFromOnHeapAddress(heap_object_ptr);
-    return root_or_zero +
-           static_cast<internal::Address>(static_cast<intptr_t>(value));
+      internal::Address heap_object_ptr, uint32_t value) {
+    internal::Address root = GetRootFromOnHeapAddress(heap_object_ptr);
+    return root + static_cast<internal::Address>(static_cast<uintptr_t>(value));
   }
 #endif  // V8_COMPRESS_POINTERS
 };

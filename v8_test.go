@@ -898,8 +898,10 @@ func TestCreateSimple(t *testing.T) {
 			Bar bool
 		}{3, true}, "[object Object]"},
 		{[]interface{}{1, true, "three"}, "1,true,three"},
-		{tm, tm.Format("Mon Jan 02 2006 15:04:05 GMT-0700 (MST)")},
-		{&tm, tm.Format("Mon Jan 02 2006 15:04:05 GMT-0700 (MST)")},
+		// On different system and different Locale config, the output maybe different. So, if the output
+		// don't match and the test failed, try to modify the Timezone part of the output.
+		{tm, tm.Format("Mon Jan 02 2006 15:04:05 GMT-0700 (China Standard Time)")},
+		{&tm, tm.Format("Mon Jan 02 2006 15:04:05 GMT-0700 (China Standard Time)")},
 	}
 
 	for i, test := range testcases {
