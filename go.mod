@@ -1,3 +1,3 @@
-module github.com/joesonw/js8
+module github.com/Terfender/go-jsv8
 
 go 1.13
