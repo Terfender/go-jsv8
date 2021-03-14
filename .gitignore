@@ -27,5 +27,5 @@ v8/build/.gclient_entries
 
 bazel-*
 
-*.a
+# *.a
 *.DS_Store
