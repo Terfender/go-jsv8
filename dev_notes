@@ -1,0 +1,3 @@
+# Symlink the compiled libraries and includes
+ln -s $(pwd)/libv8-darwin/include $GOPATH/src/github.com/Terfender/go-jsv8/include
+ln -s $(pwd)/libv8-darwin/libv8 $GOPATH/src/github.com/Terfender/go-jsv8/libv8
